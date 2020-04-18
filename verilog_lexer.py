@@ -200,7 +200,7 @@ reserved_common = [
 "for",
 "posedge",
 "negedge",
-#### ?????? "or",
+"or", # because events --> special
 "case",
 "casex",
 "casez",
@@ -226,13 +226,13 @@ reserved_common = [
 "supply1"]
 
 reserved_common = {k: 'TOK_' + k.upper() for k in reserved_common}
-
+reserved_common.update({'$signed':'TOK_TO_SIGNED', '$unsigned':'TOK_TO_UNSIGNED'})
 
 """
 "specify"      { return specify_mode ? TOK_SPECIFY : TOK_IGNORED_SPECIFY; }
 """
 
-reserved_sv_set = { ## SV_KEYWORD(TOK_PACKAGE);
+reserved_sv = [ ## SV_KEYWORD(TOK_PACKAGE);
 "package",
 "endpackage",
 "interface",
@@ -249,9 +249,9 @@ reserved_sv_set = { ## SV_KEYWORD(TOK_PACKAGE);
 "var",
 "bit",
 "enum",
-"typedef"}
+"typedef"]
 
-reserved_sv = {k: 'TOK_' + k.upper() for k in reserved_sv_set}
+reserved_sv = {k: 'TOK_' + k.upper() for k in reserved_sv}
 
 """
  /* use special token for labels on assert, assume, cover, and restrict because it's insanley complex
@@ -279,8 +279,9 @@ reserved_formal_set = { # { if (formal_mode) return TOK_ASSERT; SV_KEYWORD(TOK_A
 
 reserved_formal = {k: 'TOK_' + k.upper() for k in reserved_formal_set}
 
+## WARNING : "or" -> TOK_OR
 reserved_primitive_set = {
-	"and","nand","or","nor","xor","xnor","not","buf","bufif0","bufif1","notif0","notif1"
+	"and","nand","nor","xor","xnor","not","buf","bufif0","bufif1","notif0","notif1"
 	}
 
 reserved_primitive = {k: 'TOK_PRIMITIVE' for k in reserved_primitive_set}
@@ -322,6 +323,7 @@ tokens = (
 	'TOK_PACKAGESEP',
 	'TOK_POS_INDEXED',
 	'TOK_PRIMITIVE',
+	'TOK_REALVAL',
 	'TOK_SPECIFY',
 	'TOK_STRING',
 	'TOK_SVA_LABEL',
@@ -366,17 +368,16 @@ t_TOK_UNBASED_UNSIZED_CONSTVAL = "'[01zxZX]"
 }
 """
 t_TOK_BASED_CONSTVAL = "'[sS]?[bodhBODH]\s*[0-9a-fA-FzxZX?][0-9a-fA-FzxZX?_]*"
+
+def t_TOK_REALVAL_1(t):
+	r"[0-9][0-9_]*\.[0-9][0-9_]*([eE][-+]?[0-9_]+)?"
+	return t
+
+def t_TOK_REALVAL_2(t):
+	r"[0-9][0-9_]*[eE][-+]?[0-9_]+"
+	return t
+
 """
-[0-9][0-9_]*\.[0-9][0-9_]*([eE][-+]?[0-9_]+)? {
-	yylval->string = new std::string(yytext);
-	return TOK_REALVAL;
-}
-
-[0-9][0-9_]*[eE][-+]?[0-9_]+ {
-	yylval->string = new std::string(yytext);
-	return TOK_REALVAL;
-}
-
 \"		{ BEGIN(STRING); }
 <STRING>\\.	{ yymore(); real_location = old_location; }
 <STRING>\"	{
@@ -440,10 +441,9 @@ t_TOK_STRING = r'\"(\\\"|[^\n\"])*\"'
 	yylval->string = new std::string(yytext);
 	return TOK_MSG_TASKS;
 }
+"""
 
-"$signed"   { return TOK_TO_SIGNED; }
-"$unsigned" { return TOK_TO_UNSIGNED; }
-
+"""
 [a-zA-Z_][a-zA-Z0-9_]*::[a-zA-Z_$][a-zA-Z0-9_$]* {
 	// package qualifier
 	auto s = std::string("\\") + yytext;
@@ -627,19 +627,23 @@ import ply.lex as lex
 
 ###################### A SUPPRIMER
 
-def t_preproc_1(t):
-	r"`(ifdef|ifndef|elsif|define)\s+([A-Z][A-Z_]*|assume|debug|assert).*"
+#def t_preproc_1(t):
+#	r"`(ifdef|ifndef|elsif|define)\s+([A-Z][A-Z_]*|assume|debug|assert).*"
+#	pass
+#
+#def t_preproc_2(t):
+#	r"`(else|endif).*"
+#	pass
+#
+#def t_preproc_3(t):
+#	r"`([A-Z][A-Z_]*|include|assert|debug)"
+#	pass
+
+def t_preproc_4(t):
+	r"`timescale"
 	pass
 
-def t_preproc_2(t):
-	r"`(else|endif).*"
-	pass
-
-def t_preproc_3(t):
-	r"`([A-Z][A-Z_]*|timescale|include|assert|debug)"
-	pass
-
-def t_preproc_4(t): ### simple/techmap/top.v
+def t_preproc_5(t): ### simple/techmap/top.v
 	r"\\\\[a-z][a-z_]+"
 	pass
 
@@ -668,6 +672,7 @@ lexer = lex.lex(optimize=0)
 
 if __name__ == '__main__':
 	import codecs, os
+	import verilog_preproc
 	encoding = 'latin-1' # 'utf-8'
 	fn = r'C:\Temp\github\yosys-tests-master\simple\aigmap'
 	fn = r'C:\Temp\github\yosys-tests-master\simple'
@@ -675,10 +680,13 @@ if __name__ == '__main__':
 	for root, dirs, files in os.walk(fn):
 		for file in files:
 			if file.endswith('.v'):
+				macros_preproc = {}
 				fn = os.path.join(root,file)
 				print('*** '+fn)
 				fd = codecs.open(fn, 'r',encoding=encoding)
-				s = fd.read()
+				#s = fd.read()
+				sl = verilog_preproc.pp(fd, **macros_preproc)
+				s = ''.join(sl)
 				fd.close()
 				lexer.current_file = fn
 				lexer.lineno = 1

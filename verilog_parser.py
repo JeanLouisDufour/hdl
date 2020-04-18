@@ -14,6 +14,8 @@ import functools
 # lexer : permit to force yacc to use the good lexer (in case of multiple parsers)
 from verilog_lexer import tokens, lexer
 
+print('v37')
+
 def make_seq_lr(p):
 	""
 	lp = len(p)
@@ -399,9 +401,9 @@ hierarchical_id:
 def p_hierarchical_id(p):
 	"""hierarchical_id : TOK_ID
 	| hierarchical_id TOK_PACKAGESEP TOK_ID
-	| hierarchical_id '.' TOK_ID
+	| hierarchical_id DOT TOK_ID
 	"""
-	p[0] = p[1] if len(p) == 2 else p[1] + p[2:]
+	p[0] = p[1:] if len(p) == 2 else p[1] + p[2:]
 """
 hierarchical_type_id:
 	TOK_USER_TYPE
@@ -566,7 +568,7 @@ module_arg:
 def p_module_arg(p):
 	"""module_arg : TOK_ID module_arg_assignment_OPT
 	| TOK_ID TOK_ID module_arg_assignment_OPT
-	| attr_STAR wire_type range TOK_ID module_arg_assignment_OPT
+	| attr_STAR wire_type range_OPT TOK_ID module_arg_assignment_OPT
 	"""
 	p[0] = None
 
@@ -639,6 +641,10 @@ delay:
 """
 def p_delay(p):
 	"""delay : '#' TOK_ID
+	| '#' TOK_CONSTVAL
+	| '#' TOK_REALVAL
+	| '#' '(' expr ')'
+	| '#' '(' expr ':' expr ':' expr ')'
 	"""
 	p[0] = None
 """
@@ -841,6 +847,9 @@ module_body_stmt:
 def p_module_body_stmt(p):
 	"""module_body_stmt : always_stmt
 	| assign_stmt
+	| cell_stmt
+	| defparam_decl
+	| param_decl
 	| wire_decl
 	"""
 	p[0] = p[1]
@@ -1460,7 +1469,12 @@ param_type:
 		astbuf1->children.push_back(new AstNode(AST_WIRETYPE));
 		astbuf1->children.back()->str = *$1;
 	};
-
+"""
+def p_param_type(p):
+	"""param_type : TOK_SIGNED_OPT TOK_INTEGER_OPT TOK_REAL_OPT range_OPT
+	"""
+	p[0] = None
+"""
 param_decl:
 	attr TOK_PARAMETER {
 		astbuf1 = new AstNode(AST_PARAMETER);
@@ -1469,7 +1483,12 @@ param_decl:
 	} param_type param_decl_list ';' {
 		delete astbuf1;
 	};
-
+"""
+def p_param_decl(p):
+	"""param_decl : attr_STAR TOK_PARAMETER param_type single_param_decl_SEQ ';'
+	"""
+	p[0] = None
+"""
 localparam_decl:
 	attr TOK_LOCALPARAM {
 		astbuf1 = new AstNode(AST_LOCALPARAM);
@@ -1499,10 +1518,20 @@ single_param_decl:
 		ast_stack.back()->children.push_back(node);
 		delete $1;
 	};
-
+"""
+def p_single_param_decl(p):
+	"""single_param_decl : TOK_ID '=' expr
+	"""
+	p[0] = None
+"""
 defparam_decl:
 	TOK_DEFPARAM defparam_decl_list ';';
-
+"""
+def p_defparam_decl(p):
+	"""defparam_decl : TOK_DEFPARAM single_defparam_decl_SEQ ';'
+	"""
+	p[0] = None
+"""
 defparam_decl_list:
 	single_defparam_decl | defparam_decl_list ',' single_defparam_decl;
 
@@ -1515,7 +1544,12 @@ single_defparam_decl:
 			node->children.push_back($1);
 		ast_stack.back()->children.push_back(node);
 	};
-
+"""
+def p_single_defparam_decl(p):
+	"""single_defparam_decl : range_OPT rvalue '=' expr
+	"""
+	p[0] = None
+"""
 enum_type: TOK_ENUM {
 		static int enum_count;
 		// create parent node for the enum
@@ -1787,7 +1821,7 @@ wire_name:
 	};
 """
 def p_wire_name(p):
-	"""wire_name : TOK_ID
+	"""wire_name : TOK_ID range_STAR
 	"""
 	p[0] = None
 """
@@ -1877,7 +1911,12 @@ cell_stmt:
 	} prim_list ';' {
 		delete astbuf1;
 	};
-
+"""
+def p_cell_stmt(p):
+	"""cell_stmt : attr_STAR TOK_ID cell_parameter_list_OPT single_cell_SEQ ';'
+	"""
+	p[0] = None
+"""
 tok_prim_wrapper:
 	TOK_PRIMITIVE {
 		$$ = $1;
@@ -1909,7 +1948,12 @@ single_cell:
 	} '(' cell_port_list ')'{
 		SET_AST_NODE_LOC(astbuf2, @1, @$);
 	};
-
+"""
+def p_single_cell(p):
+	"""single_cell : TOK_ID '(' cell_port_SEQ ')'
+	"""
+	
+"""
 prim_list:
 	single_prim |
 	prim_list ',' single_prim;
@@ -1923,7 +1967,12 @@ single_prim:
 
 cell_parameter_list_opt:
 	'#' '(' cell_parameter_list ')' | /* empty */;
-
+"""
+def p_cell_parameter_list(p):
+	"""cell_parameter_list : '#' '(' cell_parameter_SEQ ')'
+	"""
+	p[0] = None
+"""
 cell_parameter_list:
 	cell_parameter | cell_parameter_list ',' cell_parameter;
 
@@ -1941,7 +1990,14 @@ cell_parameter:
 		node->children.push_back($4);
 		delete $2;
 	};
-
+"""
+def p_cell_parameter(p):
+	"""cell_parameter :
+	| expr
+	| DOT TOK_ID '(' expr ')'
+	"""
+	p[0] = None
+"""
 cell_port_list:
 	cell_port_list_rules {
 		// remove empty args from end of list
@@ -2013,7 +2069,12 @@ cell_port:
 			frontend_verilog_yyerror("Wildcard port connections are only supported in SystemVerilog mode.");
 		astbuf2->attributes[ID::wildcard_port_conns] = AstNode::mkconst_int(1, false);
 	};
-
+"""
+def p_cell_port(p):
+	"""cell_port : attr_STAR DOT TOK_ID '(' expr ')' 
+	"""
+	p[0] = None
+"""
 always_comb_or_latch:
 	TOK_ALWAYS_COMB {
 		$$ = false;
@@ -2088,6 +2149,7 @@ always_stmt:
 """
 def p_always_stmt(p):
 	"""always_stmt : attr_STAR always_or_always_ff always_cond behavioral_stmt
+	| attr_STAR TOK_INITIAL behavioral_stmt
 	"""
 	p[0] = None
 """
@@ -2100,11 +2162,12 @@ always_cond:
 	/* empty */;
 """
 def p_always_cond(p):
-	"""always_cond :
+	"""always_cond : '@' '(' always_events ')'
 	| '@' '(' '*' ')'
 	| '@' ATTR_BEGIN ')'
 	| '@' '(' ATTR_END
 	| '@' '*'
+	|
 	"""
 	p[0] = None
 """
@@ -2112,7 +2175,14 @@ always_events:
 	always_event |
 	always_events TOK_OR always_event |
 	always_events ',' always_event;
-
+"""
+def p_always_events(p):
+	"""always_events : always_event
+	| always_events TOK_OR always_event
+	| always_events ',' always_event
+	"""
+	p[0] = None
+"""
 always_event:
 	TOK_POSEDGE expr {
 		AstNode *node = new AstNode(AST_POSEDGE);
@@ -2129,7 +2199,14 @@ always_event:
 		ast_stack.back()->children.push_back(node);
 		node->children.push_back($1);
 	};
-
+"""
+def p_always_event(p):
+	"""always_event : TOK_POSEDGE expr
+	| TOK_NEGEDGE expr
+	| expr
+	"""
+	p[0] = None
+"""
 opt_label:
 	':' TOK_ID {
 		$$ = $2;
@@ -2137,7 +2214,12 @@ opt_label:
 	/* empty */ {
 		$$ = NULL;
 	};
-
+"""
+def p_label(p):
+	"""label : ':' TOK_ID
+	"""
+	p[0] = p[1]
+"""
 opt_sva_label:
 	TOK_SVA_LABEL ':' {
 		$$ = $1;
@@ -2400,6 +2482,9 @@ simple_behavioral_stmt:
 """
 def p_simple_behavioral_stmt(p):
 	"""simple_behavioral_stmt : lvalue '=' delay_OPT expr
+	| lvalue TOK_INCREMENT
+	| lvalue TOK_DECREMENT
+	| lvalue OP_LE delay_OPT expr
 	"""
 	p[0] = None
 """
@@ -2523,7 +2608,12 @@ behavioral_stmt:
 	;
 """
 def p_behavioral_stmt(p):
-	"""behavioral_stmt : simple_behavioral_stmt
+	"""behavioral_stmt : ';'
+	| simple_behavioral_stmt ';'
+	| attr_STAR TOK_BEGIN label_OPT behavioral_stmt_STAR TOK_END
+	| attr_STAR TOK_IF '(' expr ')' behavioral_stmt
+	| attr_STAR TOK_IF '(' expr ')' behavioral_stmt TOK_ELSE behavioral_stmt 
+	| case_attr case_type '(' expr ')' opt_synopsys_attr case_item_STAR TOK_ENDCASE
 	"""
 	p[0] = p[1]
 """
@@ -2537,13 +2627,25 @@ unique_case_attr:
 	TOK_UNIQUE case_attr {
 		$$ = true;
 	};
-
+"""
+def p_unique_case_attr(p):
+	"""unique_case_attr :
+	| TOK_PRIORITY case_attr
+	| TOK_UNIQUE case_attr
+	"""
+	p[0] = None
+"""
 case_attr:
 	attr unique_case_attr {
 		if ($2) (*$1)["\\parallel_case"] = AstNode::mkconst_int(1, false);
 		$$ = $1;
 	};
-
+"""
+def p_case_attr(p):
+	"""case_attr : attr_STAR unique_case_attr
+	"""
+	p[0] = None
+"""
 case_type:
 	TOK_CASE {
 		case_type_stack.push_back(0);
@@ -2554,7 +2656,14 @@ case_type:
 	TOK_CASEZ {
 		case_type_stack.push_back('z');
 	};
-
+"""
+def p_case_type(p):
+	"""case_type : TOK_CASE
+	| TOK_CASEX
+	| TOK_CASEZ
+	"""
+	p[0] = p[1]
+"""
 opt_synopsys_attr:
 	opt_synopsys_attr TOK_SYNOPSYS_FULL_CASE {
 		if (ast_stack.back()->attributes.count(ID::full_case) == 0)
@@ -2565,7 +2674,13 @@ opt_synopsys_attr:
 			ast_stack.back()->attributes[ID::parallel_case] = AstNode::mkconst_int(1, false);
 	} |
 	/* empty */;
-
+"""
+def p_opt_synopsys_attr(p):
+	"""opt_synopsys_attr :
+	"""
+	p[0] = None
+	
+"""
 behavioral_stmt_list:
 	behavioral_stmt_list behavioral_stmt |
 	/* empty */;
@@ -2606,7 +2721,12 @@ case_item:
 		ast_stack.pop_back();
 		ast_stack.pop_back();
 	};
-
+"""
+def p_case_item(p):
+	"""case_item : case_select behavioral_stmt
+	"""
+	p[0] = None
+"""
 gen_case_body:
 	gen_case_body gen_case_item |
 	/* empty */;
@@ -2629,7 +2749,14 @@ gen_case_item:
 case_select:
 	case_expr_list ':' |
 	TOK_DEFAULT;
-
+"""
+def p_case_select(p):
+	"""case_select : expr_SEQ ':'
+	| TOK_DEFAULT ':'
+	| TOK_DEFAULT
+	"""
+	p[0] = None
+"""
 case_expr_list:
 	TOK_DEFAULT {
 		AstNode *node = new AstNode(AST_DEFAULT);
@@ -2649,7 +2776,15 @@ case_expr_list:
 	case_expr_list ',' expr {
 		ast_stack.back()->children.push_back($3);
 	};
-
+"""
+#def p_case_expr_list(p):
+#	"""case_expr_list : TOK_DEFAULT
+#	| TOK_SVA_LABEL
+#	| expr
+#	| case_expr_list ',' expr
+#	"""
+#	p[0] = None
+"""
 rvalue:
 	hierarchical_id '[' expr ']' '.' rvalue {
 		$$ = new AstNode(AST_PREFIX, $3, $6);
@@ -2813,7 +2948,7 @@ expr:
 	};
 """
 def p_expr(p):
-	"""expr : TOK_ID
+	"""expr : expr13
 	"""
 	p[0] = p[1]
 """
@@ -3082,7 +3217,17 @@ basic_expr:
 		SET_AST_NODE_LOC($$, @1, @3);
 		append_attr($$, $2);
 	};
-
+"""
+def p_basic_expr(p):
+	"""basic_expr : rvalue
+	| integral_number
+	| TOK_STRING
+	| '(' expr ')'
+	| '{' expr_SEQ '}'
+	| TOK_TO_SIGNED '(' expr ')'
+	"""
+	p[0] = None
+"""
 concat_list:
 	expr {
 		$$ = new AstNode(AST_CONCAT, $1);
@@ -3107,6 +3252,140 @@ integral_number:
 		delete $3;
 	};
 """
+def p_integral_number(p):
+	"""integral_number : TOK_CONSTVAL
+	| TOK_UNBASED_UNSIZED_CONSTVAL
+	| TOK_BASED_CONSTVAL
+	| TOK_CONSTVAL TOK_BASED_CONSTVAL
+	"""
+	p[0] = p[1]
+
+############# operators ###################
+"""
+high to low :
+	
+1    + - ! ~ (unary)
+2    **
+3    * / %
+4    + - (binary)
+5    << >> <<< >>>
+6    < <= > >=
+7    == != === !==
+8    & ~&
+9    ^ ^~ ~^
+10   | ~|
+11   &&
+12   ||
+13   ?: (conditional operator)
+
+All operators shall associate left to right with the exception of
+the conditional operator, which shall associate right to left
+"""
+
+def p_expr1(p): ### plus les reduction ops
+	"""expr1 : basic_expr
+	| '+' expr1
+	| '-' expr1
+	| '!' expr1
+	| '~' expr1
+	| '&' expr1
+	| OP_NAND expr1
+	| '|' expr1
+	| OP_NOR expr1
+	| '^' expr1
+	| OP_XNOR expr1
+	"""
+	p[0] = None
+
+def p_expr2(p):
+	"""expr2 : expr1
+	| expr2 OP_POW expr1
+	"""
+	p[0] = None
+
+def p_expr3(p):
+	"""expr3 : expr2
+	| expr3 '*' expr2
+	| expr3 '/' expr2
+	| expr3 '%' expr2
+	"""
+	p[0] = None
+
+def p_expr4(p):
+	"""expr4 : expr3
+	| expr4 '+' expr3
+	| expr4 '-' expr3
+	"""
+	p[0] = None
+
+def p_expr5(p):
+	"""expr5 : expr4
+	| expr5 OP_SHL expr4
+	| expr5 OP_SHR expr4
+	| expr5 OP_SSHL expr4
+	| expr5 OP_SSHR expr4
+	"""
+	p[0] = None
+
+def p_expr6(p):
+	"""expr6 : expr5
+	| expr6 '<' expr5
+	| expr6 '>' expr5
+	| expr6 OP_LE expr5
+	| expr6 OP_GE expr5
+	"""
+	p[0] = None
+
+def p_expr7(p):
+	"""expr7 : expr6
+	| expr7 OP_EQ expr6
+	| expr7 OP_NE expr6
+	| expr7 OP_EQX expr6
+	| expr7 OP_NEX expr6
+	"""
+	p[0] = None
+
+def p_expr8(p):
+	"""expr8 : expr7
+	| expr8 '&' expr7
+	| expr8 OP_NAND expr7
+	"""
+	p[0] = None
+
+def p_expr9(p):
+	"""expr9 : expr8
+	| expr9 '^' expr8
+	| expr9 OP_XNOR expr8
+	"""
+	p[0] = None
+
+def p_expr10(p):
+	"""expr10 : expr9
+	| expr10 '|' expr9
+	| expr10 OP_NOR expr9
+	"""
+	p[0] = None
+
+def p_expr11(p):
+	"""expr11 : expr10
+	| expr11 OP_LAND expr10
+	"""
+	p[0] = None
+
+def p_expr12(p):
+	"""expr12 : expr11
+	| expr12 OP_LOR expr11
+	"""
+	p[0] = None
+
+def p_expr13(p):
+	"""expr13 : expr12
+	| expr12 '?' expr12 ':' expr13
+	"""
+	p[0] = None
+
+############# iterators ##############
+	
 def p_assign_expr_SEQ(p):
 	"""assign_expr_SEQ : assign_expr
 	| assign_expr ',' assign_expr_SEQ
@@ -3131,11 +3410,41 @@ def p_attr_STAR(p):
 	"""
 	make_seq_rr(p)
 
-def p_comma_OPT(p):
-	"""comma_OPT : 
-	| ','
+def p_behavioral_stmt_STAR(p):
+	"""behavioral_stmt_STAR :
+	| behavioral_stmt behavioral_stmt_STAR
+	"""
+	make_seq_rr(p)
+
+def p_case_item_STAR(p):
+	"""case_item_STAR :
+	| case_item case_item_STAR
+	"""
+	make_seq_rr(p)
+
+def p_cell_parameter_list_OPT(p):
+	"""cell_parameter_list_OPT :
+	| cell_parameter_list
 	"""
 	p[0] = None if len(p) == 1 else p[1]
+
+def p_cell_parameter_SEQ(p):
+	"""cell_parameter_SEQ : cell_parameter
+	| cell_parameter ',' cell_parameter_SEQ
+	"""
+	make_seq_rr(p)
+
+def p_cell_port_SEQ(p):
+	"""cell_port_SEQ : cell_port
+	| cell_port ',' cell_port_SEQ
+	"""
+	make_seq_rr(p)
+	
+#def p_comma_OPT(p):
+#	"""comma_OPT : 
+#	| ','
+#	"""
+#	p[0] = None if len(p) == 1 else p[1]
 	
 def p_delay_OPT(p):
 	"""delay_OPT : 
@@ -3155,6 +3464,12 @@ def p_expr_SEQ(p):
 	"""
 	make_seq_rr(p)
 
+def p_label_OPT(p):
+	"""label_OPT :
+	| label
+	"""
+	p[0] = None if len(p) == 1 else p[1]
+	
 def p_module_arg_assignment_OPT(p):
 	"""module_arg_assignment_OPT : 
 	| module_arg_assignment
@@ -3191,18 +3506,60 @@ def p_range_OPT(p):
 	"""
 	p[0] = None if len(p) == 1 else p[1]
 
+def p_range_PLUS(p):
+	"""range_PLUS : range
+	| range range_PLUS
+	"""
+	make_seq_rr(p)
+	
 def p_range_STAR(p):
 	"""range_STAR :
 	| range range_STAR
 	"""
 	make_seq_rr(p)
-	
+
+def p_single_cell_SEQ(p):
+	"""single_cell_SEQ : single_cell
+	| single_cell ',' single_cell_SEQ
+	"""
+	make_seq_rr(p)
+
+def p_single_defparam_decl_SEQ(p):
+	"""single_defparam_decl_SEQ : single_defparam_decl
+	| single_defparam_decl ',' single_defparam_decl_SEQ
+	"""
+	make_seq_rr(p)
+
+def p_single_param_decl_SEQ(p):
+	"""single_param_decl_SEQ : single_param_decl
+	| single_param_decl ',' single_param_decl_SEQ
+	"""
+	make_seq_rr(p)
+
 def p_TOK_ID_SEQ(p):
 	"""TOK_ID_SEQ : TOK_ID
 	| TOK_ID ',' TOK_ID_SEQ
 	"""
 	make_seq_rr(p)
-	
+
+def p_TOK_INTEGER_OPT(p):
+	"""TOK_INTEGER_OPT :
+	| TOK_INTEGER
+	"""
+	p[0] = None if len(p) == 1 else p[1]
+
+def p_TOK_REAL_OPT(p):
+	"""TOK_REAL_OPT :
+	| TOK_REAL
+	"""
+	p[0] = None if len(p) == 1 else p[1]
+
+def p_TOK_SIGNED_OPT(p):
+	"""TOK_SIGNED_OPT :
+	| TOK_SIGNED
+	"""
+	p[0] = None if len(p) == 1 else p[1]
+
 def p_wire_name_and_opt_assign_SEQ(p):
 	"""wire_name_and_opt_assign_SEQ : wire_name_and_opt_assign
 	| wire_name_and_opt_assign ',' wire_name_and_opt_assign_SEQ
@@ -3227,13 +3584,17 @@ def parse_str(s):
 	result = parser.parse(s, lexer=lexer)
 	return result
 
+import verilog_preproc
+
 def parse_file(fn, save_json = False):
 	""
-	# import codecs
+	macros_preproc = {}
 	print('**  {}  **'.format(fn))
 	encoding = 'latin-1' # 'utf-8'
 	fd = open(fn, 'r',encoding=encoding)
-	s = fd.read()
+	# s = fd.read()
+	sl = verilog_preproc.pp(fd, **macros_preproc)
+	s = ''.join(sl)
 	fd.close()
 	js = parse_str(s)
 	return js
@@ -3248,7 +3609,7 @@ if __name__ == '__main__':
 	import codecs, os
 	encoding = 'latin-1' # 'utf-8'
 	fn = r'C:\Temp\github\yosys-tests-master\simple\aigmap'
-	#fn = r'C:\Temp\github\yosys-tests-master\simple'
+	fn = r'C:\Temp\github\yosys-tests-master\simple'
 	#fn = r'C:\Temp\github\yosys-tests-master\bigsim'
 	for root, dirs, files in os.walk(fn):
 		for file in files:
