@@ -1,10 +1,11 @@
 import codecs, os, re
 
-re_pp = re.compile(r'\s*`\s*(define|else|elsif|endif|ifdef|ifndef|include)') ### if_, ifdef,  elIf, elSe, enD*if
+re_pp = re.compile(r'\s*`\s*(define|else|elsif|endif|ifdef|ifndef|include|undef)')
 re_ifdef = re.compile(r'\s*`\s*ifn?def\s+(\w+)\s*')
 re_elsif = re.compile(r'\s*`\s*elsif\s+(\w+)\s*')
-re_define = re.compile(r'\s*`\s*define\s+(\w+)(\(.*\))?\s+(.*?)\s*')
+re_define = re.compile(r'\s*`\s*define\s+(\w+)(\([^\)]+\))?\s+(.*?)\s*')
 re_include = re.compile(r'\s*`\s*include\s+(".*")\s*')
+re_undef = re.compile(r'\s*`\s*undef\s+(\w+)\s*')
 
 re_ident = re.compile(r'\w+')
 
@@ -89,8 +90,18 @@ def pp(fd, **vd):
 						assert False, (var,vd)
 					if params:
 						params = params[1:-1].split(',')
-					assert '`' not in val
+						val = val.replace('{','{{').replace('}','}}')
+						for p in params:
+							assert p.isidentifier()
+							val = val.replace(p,'{'+p+'}')
+					# assert '`' not in val
 					vd[var] = (params,val) if params else val
+			elif kind == 'undef':
+				if all((auth and cond) for (auth, cond) in zip(pp_auth,pp_condition)):
+					m_undef = re_undef.fullmatch(line)
+					var = m_undef.group(1)
+					assert var in vd
+					del vd[var]
 			elif kind == 'include':
 				if all((auth and cond) for (auth, cond) in zip(pp_auth,pp_condition)):
 					m_include = re_include.fullmatch(line)
@@ -108,14 +119,12 @@ def pp(fd, **vd):
 				assert False, (li,line)
 		elif all((auth and cond) for (auth, cond) in zip(pp_auth,pp_condition)): # ligne normale non inhibée
 			idx = line.find('//')
-			if '`' in line[:idx]:
+			if '`' in line[:idx] and all(pp not in line[:idx] for pp in ('`celldefine','`endcelldefine','`resetall','`timescale')):
 				sl = line[:idx].split('`')
 				for i,s in enumerate(sl[1:], start=1):
 					m_ident = re_ident.match(s)
-					var = m_ident.group(0)
-					assert var.isidentifier()
-					if var not in ('timescale',):
-						assert var in vd, (var,vd)
+					var = m_ident.group(0) if m_ident else None
+					if var in vd:
 						val = vd[var]
 						if isinstance(val,str):
 							sl[i] = val + s[len(var):]
@@ -135,7 +144,7 @@ def pp(fd, **vd):
 								ii +=1
 							eff_params.append(s[len(var)+last_ii:len(var)+ii])
 							assert len(eff_params) == len(params)
-							assert all(p not in val for p in params)
+							val = val.format_map(dict(zip(params,eff_params)))
 							sl[i] = val + s[len(var)+ii+1:]
 				line = ''.join(sl) + line[idx:]
 		##
@@ -149,8 +158,10 @@ def pp(fd, **vd):
 if __name__ == '__main__':
 	encoding = 'latin-1' # 'utf-8'
 	fn = r'C:\Temp\github\yosys-tests-master\simple'
-	#fn = r'C:\Temp\github\yosys-tests-master\simple\alu'
+	# fn = r'C:\Temp\github\yosys-tests-master\simple\proc_arst'
 	#fn = r'C:\Temp\github\yosys-tests-master\bigsim'
+	fn = r'C:\Temp\github\yosys-tests-master\frontends\read_verilog'
+	fn = r'C:\Temp\github\yosys-tests-master'
 	for root, dirs, files in os.walk(fn):
 		for file in files:
 			if file.endswith('.v'):
@@ -159,10 +170,5 @@ if __name__ == '__main__':
 				print('*** '+fn)
 				fd = codecs.open(fn, 'r',encoding=encoding)
 				sl = pp(fd, **macros_preproc)
-#				try:
-#					sl = pp(fd, **macros_preproc)
-#					2+2
-#				except:
-#					sl = None
-#					# print(e)
+				# print(''.join(sl))
 				fd.close()

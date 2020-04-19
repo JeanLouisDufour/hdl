@@ -223,7 +223,7 @@ reserved_common = [
 "genvar",
 "real",
 "supply0",
-"supply1"]
+"supply1"] + ['event','forever']
 
 reserved_common = {k: 'TOK_' + k.upper() for k in reserved_common}
 reserved_common.update({'$signed':'TOK_TO_SIGNED', '$unsigned':'TOK_TO_UNSIGNED'})
@@ -297,6 +297,7 @@ tokens = (
 	'DEFATTR_BEGIN',
 	'DEFATTR_END',
 	'DOT',
+	'IMPORT_DPI',
 	'OP_POW',
 	'OP_LOR',
 	'OP_LAND',
@@ -313,6 +314,10 @@ tokens = (
 	'OP_SHR',
 	'OP_SSHL',
 	'OP_SSHR',
+	'PP_CELLDEFINE',
+	'PP_ENDCELLDEFINE',
+	'PP_RESETALL',
+	'PP_TIMESCALE',
 	'TOK_BASED_CONSTVAL',
 	'TOK_CONSTVAL',
 	'TOK_DECREMENT',
@@ -332,20 +337,20 @@ tokens = (
 	) \
 	+ tuple(reserved_common.values()) \
 	+ tuple(reserved_sv.values()) \
-	+ tuple(reserved_formal.values())
+	+ tuple(reserved_formal.values()) \
+	+ ('TOK_TRIG',)
 
 """
-
-
-    
-
-
 
 "s_eventually" { if (formal_mode) return TOK_EVENTUALLY; SV_KEYWORD(TOK_EVENTUALLY); }
 
-
 """
 
+def t_eventually_2(t):
+	"s_eventually"
+	t.type = 'TOK_EVENTUALLY'
+	return t
+	
 literals = "#=><+-*/^@:,;[](){}|?&!~%"  # . ne passe pas au parsing # on vire '
 
 t_DOT = r'\.'
@@ -369,12 +374,13 @@ t_TOK_UNBASED_UNSIZED_CONSTVAL = "'[01zxZX]"
 """
 t_TOK_BASED_CONSTVAL = "'[sS]?[bodhBODH]\s*[0-9a-fA-FzxZX?][0-9a-fA-FzxZX?_]*"
 
-def t_TOK_REALVAL_1(t):
+def t_TOK_REALVAL(t):
 	r"[0-9][0-9_]*\.[0-9][0-9_]*([eE][-+]?[0-9_]+)?"
 	return t
 
 def t_TOK_REALVAL_2(t):
 	r"[0-9][0-9_]*[eE][-+]?[0-9_]+"
+	t.type = 'TOK_REALVAL'
 	return t
 
 """
@@ -479,6 +485,10 @@ t_TOK_STRING = r'\"(\\\"|[^\n\"])*\"'
 	return TOK_ID;
 }
 """
+def t_IMPORT_DPI(t):
+	r'import\s+\"(DPI|DPI\-C)\"\s+function\s+(int|void)'
+	return t
+
 def t_TOK_ID(t):
 	r"[a-zA-Z_$][a-zA-Z0-9_$]*"
 	s = t.value
@@ -487,6 +497,11 @@ def t_TOK_ID(t):
 		t.type = k
 	elif isUserType(s):
 		t.type = 'TOK_USER_TYPE'
+	return t
+
+def t_TOK_ID_1(t):
+	r"\\[^\s]+"
+	t.type = 'TOK_ID'
 	return t
 
 """
@@ -526,7 +541,9 @@ def t_TOK_ID(t):
 }
 <SYNOPSYS_FLAGS>. /* ignore everything else */
 <SYNOPSYS_FLAGS>"*/" { BEGIN(0); }
+"""
 
+"""
 import[ \t\r\n]+\"(DPI|DPI-C)\"[ \t\r\n]+function[ \t\r\n]+ {
 	BEGIN(IMPORT_DPI);
 	return TOK_DPI_FUNCTION;
@@ -573,7 +590,7 @@ t_OP_NEX = "!=="
 
 t_OP_NAND = "~&"
 t_OP_NOR = r"~\|"
-t_OP_XNOR = "~^|^~"
+t_OP_XNOR = r"~\^|\^~"
 
 t_OP_SHL = "<<"
 t_OP_SHR = ">>"
@@ -582,10 +599,12 @@ t_OP_SSHR = ">>>"
 
 t_TOK_PACKAGESEP = "::"
 t_TOK_INCREMENT = r"\+\+"
-t_TOK_DECREMENT = "--"
+t_TOK_DECREMENT = r"\-\-"
 
 t_TOK_POS_INDEXED = r"\+:"
-t_TOK_NEG_INDEXED = "-:"
+t_TOK_NEG_INDEXED = r"\-:"
+
+t_TOK_TRIG = r"\->"
 
 """
 ".*" { return TOK_WILDCARD_CONNECT; }
@@ -639,13 +658,14 @@ import ply.lex as lex
 #	r"`([A-Z][A-Z_]*|include|assert|debug)"
 #	pass
 
-def t_preproc_4(t):
-	r"`timescale"
-	pass
+t_PP_CELLDEFINE = r"`celldefine"
+t_PP_ENDCELLDEFINE = r"`endcelldefine"
+t_PP_RESETALL = r"`resetall"
+t_PP_TIMESCALE = r"`timescale"
 
-def t_preproc_5(t): ### simple/techmap/top.v
-	r"\\\\[a-z][a-z_]+"
-	pass
+#def t_preproc_5(t): ### simple/techmap/top.v
+#	r"\\\\[a-z][a-z_]+"
+#	pass
 
 ######################
 
@@ -662,21 +682,34 @@ def t_space(t):
 	r'\s+'
 	tv = t.value
 	t.lexer.lineno += tv.count('\n') + tv.count('\r') - tv.count('\r\n')
+
+#def t_garbage(t):
+#	r'.'
+#	ch = t.value[0]
+#	print('!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+#	print((t.lexer.lineno, ch, ord(ch), t.lexer.current_file))
+#	print('!!!!!!!!!!!!!!!!!!!!!!!!!!!')
 	
 def t_error(t):
 	ch = t.value[0]
-	if True:
-		assert False, (ch, ord(ch), t.lexer.current_file)
+	print('!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+	print((t.lexer.lineno, ch, ord(ch), t.lexer.current_file))
+	print('!!!!!!!!!!!!!!!!!!!!!!!!!!!')
 
 lexer = lex.lex(optimize=0)
 
 if __name__ == '__main__':
+	if True:
+		lexer.input('import "DPI-C" function int add();')
+		print(list(lexer))
+		assert False
 	import codecs, os
 	import verilog_preproc
 	encoding = 'latin-1' # 'utf-8'
 	fn = r'C:\Temp\github\yosys-tests-master\simple\aigmap'
 	fn = r'C:\Temp\github\yosys-tests-master\simple'
 	fn = r'C:\Temp\github\yosys-tests-master\bigsim'
+	fn = r'C:\Temp\github\yosys-tests-master'
 	for root, dirs, files in os.walk(fn):
 		for file in files:
 			if file.endswith('.v'):
@@ -691,7 +724,10 @@ if __name__ == '__main__':
 				lexer.current_file = fn
 				lexer.lineno = 1
 				lexer.input(s)
-				t = True
-				while t:
-					t = lexer.token()
-					print(t)
+				try:
+					t = True
+					while t:
+						t = lexer.token()
+						# print(t)
+				except:
+					print('$$$$$$$$ ABORTED $$$$$$$$$$')
