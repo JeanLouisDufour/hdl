@@ -176,7 +176,7 @@ def isUserType(s):
 
 """
 
-specify_mode = True
+specify_mode = False
 
 reserved_common = [
 "module",
@@ -231,6 +231,7 @@ reserved_common.update({'$signed':'TOK_TO_SIGNED', '$unsigned':'TOK_TO_UNSIGNED'
 """
 "specify"      { return specify_mode ? TOK_SPECIFY : TOK_IGNORED_SPECIFY; }
 """
+reserved_common['specify'] = 'TOK_SPECIFY' if specify_mode else 'TOK_IGNORED_SPECIFY'
 
 reserved_sv = [ ## SV_KEYWORD(TOK_PACKAGE);
 "package",
@@ -315,6 +316,7 @@ tokens = (
 	'OP_SSHL',
 	'OP_SSHR',
 	'PP_CELLDEFINE',
+	'PP_DEFAULT_NETTYPE',
 	'PP_ENDCELLDEFINE',
 	'PP_RESETALL',
 	'PP_TIMESCALE',
@@ -322,14 +324,13 @@ tokens = (
 	'TOK_CONSTVAL',
 	'TOK_DECREMENT',
 	'TOK_ID',
-	'TOK_IGNORED_SPECIFY',
 	'TOK_INCREMENT',
 	'TOK_NEG_INDEXED',
 	'TOK_PACKAGESEP',
 	'TOK_POS_INDEXED',
 	'TOK_PRIMITIVE',
 	'TOK_REALVAL',
-	'TOK_SPECIFY',
+	# 'TOK_SPECIFY' if specify_mode else 'TOK_IGNORED_SPECIFY',
 	'TOK_STRING',
 	'TOK_SVA_LABEL',
 	'TOK_UNBASED_UNSIZED_CONSTVAL',
@@ -338,7 +339,8 @@ tokens = (
 	+ tuple(reserved_common.values()) \
 	+ tuple(reserved_sv.values()) \
 	+ tuple(reserved_formal.values()) \
-	+ ('TOK_TRIG',)
+	+ ('TOK_TRIG',) \
+	+ ('TOK_SPECIFY' if not specify_mode else 'TOK_IGNORED_SPECIFY',)
 
 """
 
@@ -659,6 +661,7 @@ import ply.lex as lex
 #	pass
 
 t_PP_CELLDEFINE = r"`celldefine"
+t_PP_DEFAULT_NETTYPE = r"`default_nettype"
 t_PP_ENDCELLDEFINE = r"`endcelldefine"
 t_PP_RESETALL = r"`resetall"
 t_PP_TIMESCALE = r"`timescale"
@@ -702,14 +705,16 @@ if __name__ == '__main__':
 	if True:
 		lexer.input('import "DPI-C" function int add();')
 		print(list(lexer))
-		assert False
+		# assert False
 	import codecs, os
 	import verilog_preproc
 	encoding = 'latin-1' # 'utf-8'
-	fn = r'C:\Temp\github\yosys-tests-master\simple\aigmap'
-	fn = r'C:\Temp\github\yosys-tests-master\simple'
-	fn = r'C:\Temp\github\yosys-tests-master\bigsim'
-	fn = r'C:\Temp\github\yosys-tests-master'
+	vlib = r'C:\Temp\github\verilog'
+	fn = vlib + r'\yosys-tests-master\simple\aigmap'
+	fn = vlib + r'\yosys-tests-master\simple'
+	fn = vlib + r'\yosys-tests-master\bigsim'
+	fn = vlib + r'\yosys-tests-master'
+	fn = vlib + r'\yosys-master'
 	for root, dirs, files in os.walk(fn):
 		for file in files:
 			if file.endswith('.v'):
@@ -729,5 +734,7 @@ if __name__ == '__main__':
 					while t:
 						t = lexer.token()
 						# print(t)
-				except:
-					print('$$$$$$$$ ABORTED $$$$$$$$$$')
+				except verilog_preproc.Error as err:
+					print('$$$$$$$$ PP ABORTED $$$$$$$$$$')
+				except lex.LexError as err:
+					print('$$$$$$$$ LEX ABORTED $$$$$$$$$$')

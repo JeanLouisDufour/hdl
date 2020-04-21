@@ -304,6 +304,8 @@ def p_design(p):
 	| module
 	| package
 	| PP_CELLDEFINE
+	| PP_DEFAULT_NETTYPE TOK_ID
+	| PP_DEFAULT_NETTYPE TOK_WIRE
 	| PP_ENDCELLDEFINE
 	| PP_RESETALL
 	| PP_TIMESCALE TOK_CONSTVAL TOK_ID '/' TOK_CONSTVAL TOK_ID
@@ -899,6 +901,7 @@ def p_module_body_stmt(p):
 	| assign_stmt
 	| cell_stmt
 	| defparam_decl
+	| ignored_specify_block
 	| localparam_decl
 	| param_decl
 	| specify_block
@@ -1243,7 +1246,12 @@ specify_item:
 
 		delete $1;
 	};
-
+"""
+def p_specify_item(p):
+	"""specify_item : TOK_ID
+	"""
+	p[0] = None
+"""
 specify_opt_triple:
 	',' specify_triple {
 		$$ = $2;
@@ -1374,7 +1382,12 @@ specify_triple:
 ignored_specify_block:
 	TOK_IGNORED_SPECIFY ignored_specify_item_opt TOK_ENDSPECIFY |
 	TOK_IGNORED_SPECIFY TOK_ENDSPECIFY ;
-
+"""
+def p_ignored_specify_block(p):
+	"""ignored_specify_block : TOK_IGNORED_SPECIFY ignored_specify_item_STAR TOK_ENDSPECIFY
+	"""
+	p[0] = None
+"""
 ignored_specify_item_opt:
 	ignored_specify_item_opt ignored_specify_item |
 	ignored_specify_item ;
@@ -1386,7 +1399,13 @@ ignored_specify_item:
 	| path_declaration
 	| system_timing_declaration
 	;
-
+"""
+def p_ignored_specify_item(p):
+	"""ignored_specify_item : specparam_declaration
+	| path_declaration
+	"""
+	p[0] = None
+"""
 specparam_declaration:
 	TOK_SPECPARAM list_of_specparam_assignments ';' |
 	TOK_SPECPARAM specparam_range list_of_specparam_assignments ';' ;
@@ -1410,7 +1429,6 @@ specparam_assignment:
 """
 def p_specparam_assignment(p):
 	"""specparam_assignment : TOK_ID '=' expr
-	| '(' TOK_ID '=' '>' TOK_ID ')' '=' '(' expr ',' expr ')'
 	"""
 	p[0] = None
 """
@@ -1422,7 +1440,12 @@ path_declaration :
 	// | edge_sensitive_path_declaration
 	// | state_dependent_path_declaration
 	;
-
+"""
+def p_path_declaration(p):
+	"""path_declaration : '(' TOK_ID '=' '>' TOK_ID ')' '=' '(' expr ',' expr ')' ';'
+	"""
+	p[0] = None
+"""
 simple_path_declaration :
 	ignspec_opt_cond parallel_path_description '=' path_delay_value |
 	ignspec_opt_cond full_path_description '=' path_delay_value
@@ -3568,7 +3591,7 @@ def p_expr12(p):
 
 def p_expr13(p):
 	"""expr13 : expr12
-	| expr12 '?' attr_STAR expr12 ':' expr13
+	| expr12 '?' attr_STAR expr13 ':' expr13
 	"""
 	p[0] = None
 
@@ -3657,12 +3680,6 @@ def p_expr_SEQ(p):
 	| expr ',' expr_SEQ
 	"""
 	make_seq_rr(p)
-
-def p_interface_body_stmt_STAR(p):
-	"""interface_body_stmt_STAR :
-	| interface_body_stmt interface_body_stmt_STAR
-	"""
-	make_seq_rr(p)
 	
 def p_gen_case_item_STAR(p):
 	"""gen_case_item_STAR : 
@@ -3676,6 +3693,18 @@ def p_gen_stmt_or_module_body_stmt_STAR(p):
 	"""
 	make_seq_rr(p)
 
+def p_ignored_specify_item_STAR(p):
+	"""ignored_specify_item_STAR :
+	| ignored_specify_item ignored_specify_item_STAR
+	"""
+	make_seq_rr(p)
+
+def p_interface_body_stmt_STAR(p):
+	"""interface_body_stmt_STAR :
+	| interface_body_stmt interface_body_stmt_STAR
+	"""
+	make_seq_rr(p)
+	
 def p_label_OPT(p):
 	"""label_OPT :
 	| label
@@ -3784,6 +3813,12 @@ def p_single_prim_SEQ(p):
 	"""
 	make_seq_rr(p)
 
+def p_specify_item_STAR(p):
+	"""specify_item_STAR :
+	| specify_item specify_item_STAR
+	"""
+	make_seq_rr(p)
+	
 def p_specparam_assignment_SEQ(p):
 	"""specparam_assignment_SEQ : specparam_assignment
 	| specparam_assignment ',' specparam_assignment_SEQ
@@ -3855,7 +3890,11 @@ def parse_file(fn, save_json = False):
 	encoding = 'latin-1' # 'utf-8'
 	fd = open(fn, 'r',encoding=encoding)
 	# s = fd.read()
-	sl = verilog_preproc.pp(fd, **macros_preproc)
+	try:
+		sl = verilog_preproc.pp(fd, **macros_preproc)
+	except verilog_preproc.Error:
+		sl = []
+		print('!!!!!!!! PP Error !!!!!')
 	s = ''.join(sl)
 	fd.close()
 	lexer.current_file = fn
@@ -3875,13 +3914,23 @@ if __name__ == '__main__':
 	# 
 	import codecs, os
 	encoding = 'latin-1' # 'utf-8'
-	fn = r'C:\Temp\github\yosys-tests-master\architecture'
-	fn = r'C:\Temp\github\yosys-tests-master\backends'
-	fn = r'C:\Temp\github\yosys-tests-master\bigsim'
-	fn = r'C:\Temp\github\yosys-tests-master\equiv'
-	fn = r'C:\Temp\github\yosys-tests-master\frontends'
-	#fn = r'C:\Temp\github\yosys-tests-master\simple'
-	#fn = r'C:\Temp\github\yosys-tests-master'
+	vlib = r'C:\Temp\github\verilog'
+	fn = vlib + r'\yosys-tests-master\architecture'
+	fn = vlib + r'\yosys-tests-master\backends'
+	fn = vlib + r'\yosys-tests-master\bigsim'
+	fn = vlib + r'\yosys-tests-master\equiv'
+	fn = vlib + r'\yosys-tests-master\frontends'
+	fn = vlib + r'\yosys-tests-master\misc'
+	fn = vlib + r'\yosys-tests-master\regression'
+	fn = vlib + r'\yosys-tests-master\simple'
+	fn = vlib + r'\yosys-tests-master\verific'
+	fn = vlib + r'\yosys-tests-master\yosys'
+	fn = vlib + r'\yosys-tests-master'
+	fn = vlib + r'\yosys-master'
+	fn = vlib + r'\ivtest-master'
+	fn = vlib + r'\verilator_ext_tests-master'
+	fn = vlib + r'\verilator-master'
+	fn = vlib
 	for root, dirs, files in os.walk(fn):
 		for file in files:
 			if file.endswith('.v') and not (root.endswith('sim') and file == 'sieve.v'):
