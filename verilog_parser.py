@@ -9,7 +9,7 @@
 import ply # pour lex.LexError
 import ply.yacc as yacc
 import ply2yacc
-# import functools
+import json
 # tokens : Get the token map from the lexer.  This is required.
 # lexer : permit to force yacc to use the good lexer (in case of multiple parsers)
 from verilog_lexer import tokens, lexer
@@ -303,15 +303,19 @@ def p_design(p):
 	| interface
 	| module
 	| package
-	| PP_CELLDEFINE
+	| preproc
+	"""
+	p[0] = p[1]
+
+def p_preproc(p):
+	"""preproc : PP_CELLDEFINE
 	| PP_DEFAULT_NETTYPE TOK_ID
 	| PP_DEFAULT_NETTYPE TOK_WIRE
 	| PP_ENDCELLDEFINE
 	| PP_RESETALL
 	| PP_TIMESCALE TOK_CONSTVAL TOK_ID '/' TOK_CONSTVAL TOK_ID
 	"""
-	p[0] = p[1]
-
+	p[0] = p[1:]
 """
 attr:
 	{
@@ -338,7 +342,7 @@ attr_opt:
 def p_attr(p):
 	"""attr : ATTR_BEGIN attr_assign_SEQ_OPT ATTR_END
 	"""
-	p[0] = None
+	p[0] = p[1:3]
 	
 """
 defattr:
@@ -362,7 +366,7 @@ defattr:
 def p_defattr(p):
 	"""defattr : DEFATTR_BEGIN attr_assign_SEQ_OPT DEFATTR_END
 	"""
-	p[0] = None
+	p[0] = p[1:3]
 """
 opt_attr_list:
 	attr_list | /* empty */;
@@ -389,7 +393,7 @@ def p_attr_assign(p):
 	"""attr_assign : hierarchical_id
 	| hierarchical_id '=' expr
 	"""
-	p[0] = None
+	p[0] = [p[1], None] if len(p)==2 else [p[1], p[3]]
 """
 hierarchical_id:
 	TOK_ID {
@@ -417,7 +421,7 @@ def p_hierarchical_id(p):
 	| hierarchical_id TOK_PACKAGESEP TOK_ID
 	| hierarchical_id DOT TOK_ID
 	"""
-	p[0] = p[1:] if len(p) == 2 else p[1] + p[2:]
+	p[0] = p[1] if len(p) == 2 else [p[2],p[1],p[3]]
 """
 hierarchical_type_id:
 	TOK_USER_TYPE
@@ -452,7 +456,7 @@ module:
 """
 def p_module(p):
 	"module : attr_STAR TOK_MODULE TOK_ID module_para_OPT module_args_OPT ';' module_body_STAR TOK_ENDMODULE"
-	p[0] = p[2]
+	p[0] = p[2:6] + [p[7],p[1]]
 
 
 """
@@ -462,7 +466,7 @@ module_para_opt:
 def p_module_para(p):
 	"""module_para : '#' '(' single_module_para_SEQ ')'
 	"""
-	p[0] = p[1]
+	p[0] = p[3]
 	
 
 """
@@ -501,7 +505,7 @@ def p_module_args(p): ## LSEQ pour eviter un S/R
 	| '(' module_arg_LSEQ ')'
 	| '(' module_arg_LSEQ ',' ')'
 	"""
-	p[0] = None
+	p[0] = [] if len(p)==3 else p[2]
 
 """
 module_args:
@@ -589,7 +593,15 @@ def p_module_arg(p):
 	| TOK_ID TOK_ID module_arg_assignment_OPT
 	| attr_STAR wire_type range_OPT TOK_ID module_arg_assignment_OPT
 	"""
-	p[0] = None
+	if len(p) == 3:
+		if p[2]:
+			p[0] = p[1:]
+		else:
+			p[0] = p[1]
+	elif len(p) == 4:
+		p[0] = p[1:]
+	else:
+		p[0] = [p[4],p[1],p[2],p[3],p[5]]
 
 def p_module_arg_COMMA(p):
 	"""module_arg_COMMA : module_arg ','
@@ -615,7 +627,7 @@ package:
 def p_package(p):
 	"""package : attr_STAR TOK_PACKAGE TOK_ID ';' package_body_stmt_STAR TOK_ENDPACKAGE
 	"""
-	p[0] = None
+	p[0] = [p[2:4]] + [p[5],p[1]]
 """
 package_body:
 	package_body package_body_stmt
@@ -631,7 +643,7 @@ def p_package_body_stmt(p):
 	"""package_body_stmt : localparam_decl
 	| param_decl
 	"""
-	p[0] = None
+	p[0] = p[1]
 """
 interface:
 	TOK_INTERFACE {
@@ -659,7 +671,7 @@ interface:
 def p_interface(p):
 	"""interface : TOK_INTERFACE TOK_ID module_para_OPT module_args_OPT ';' interface_body_stmt_STAR TOK_ENDINTERFACE
 	"""
-	p[0] = None
+	p[0] = p[1:5] + [p[6]]
 """
 interface_body:
 	interface_body interface_body_stmt |;
@@ -678,7 +690,7 @@ def p_interface_body_stmt(p):
 	| assign_stmt
 	| modport_stmt
 	"""
-	p[0] = None
+	p[0] = p[1]
 """
 non_opt_delay:
 	'#' TOK_ID { delete $2; } |
@@ -697,7 +709,7 @@ def p_delay(p):
 	| '#' '(' expr ')'
 	| '#' '(' expr ':' expr ':' expr ')'
 	"""
-	p[0] = None
+	p[0] = p[2] if len(p)==3 else p[2:4] if len(p)==5 else p[2:4] + [p[5],p[7]] 
 """
 wire_type:
 	{
@@ -712,7 +724,7 @@ wire_type:
 def p_wire_type(p):
 	"""wire_type : wire_type_token_list
 	"""
-	p[0] = None
+	p[0] = p[1]
 
 """
 wire_type_token_list:
@@ -730,7 +742,7 @@ def p_wire_type_token_list(p):
 	| wire_type_token_list wire_type_token
 	| wire_type_token_io
 	"""
-	p[0] = None
+	p[0] = p[1:] if len(p)==2 else p[1]+p[2:]
 """
 wire_type_token_io:
 	TOK_INPUT {
@@ -805,7 +817,7 @@ def p_wire_type_token(p):
 	| TOK_RAND
 	| TOK_CONST
 	"""
-	p[0] = None
+	p[0] = p[1]
 """
 non_opt_range:
 	'[' expr ':' expr ']' {
@@ -836,7 +848,7 @@ def p_range(p):
 	| '[' expr TOK_NEG_INDEXED expr ']'
 	| '[' expr ']'
 	"""
-	p[0] = None
+	p[0] = p[1:]
 """
 non_opt_multirange:
 	non_opt_range non_opt_range {
@@ -850,7 +862,7 @@ non_opt_multirange:
 def p_multirange(p):
 	"""multirange : range range range_STAR
 	"""
-	p[0] = None
+	p[0] = p[1:3] + p[3]
 """
 range:
 	non_opt_range {
@@ -885,10 +897,7 @@ def p_module_body(p):
 	"""module_body : module_body_stmt
 	| gen_stmt
 	"""
-	p[0] = None
-
-
-
+	p[0] = p[1]
 """
 
 module_body_stmt:
@@ -913,7 +922,7 @@ def p_module_body_stmt(p):
 	| IMPORT_DPI TOK_ID '(' ')' ';'
 	| TOK_EVENT TOK_ID ';'
 	"""
-	p[0] = p[1]
+	p[0] = p[1] if len(p)==2 else p[1:3] if len(p) in (4,5) else p[1:3]
 
 """
 checker_decl:
@@ -1792,7 +1801,8 @@ def p_wire_decl(p):
 	| attr_STAR TOK_SUPPLY0 TOK_ID_SEQ ';'
 	| attr_STAR TOK_SUPPLY1 TOK_ID_SEQ ';'
 	"""
-	p[0] = None
+	p[0] = [p[2]] + p[3] + [p[1]] if len(p) == 4 else \
+			p[2:6] + [p[1]]
 	
 """
 opt_supply_wires:
@@ -2299,7 +2309,7 @@ def p_always_stmt(p):
 	| attr_STAR always_comb_or_latch behavioral_stmt
 	| attr_STAR TOK_INITIAL behavioral_stmt
 	"""
-	p[0] = None
+	p[0] = p[2:] + p[1]
 """
 always_cond:
 	'@' '(' always_events ')' |
@@ -2317,7 +2327,9 @@ def p_always_cond(p):
 	| '@' '*'
 	|
 	"""
-	p[0] = None
+	p[0] = '*' if len(p) == 3 else \
+			['(','*'] if len(p) == 4 else \
+			p[2:4]
 """
 always_events:
 	always_event |
@@ -2366,7 +2378,7 @@ opt_label:
 def p_label(p):
 	"""label : ':' TOK_ID
 	"""
-	p[0] = p[1]
+	p[0] = p[2]
 """
 opt_sva_label:
 	TOK_SVA_LABEL ':' {
@@ -2655,7 +2667,9 @@ def p_simple_behavioral_stmt(p):
 	| lvalue TOK_DECREMENT
 	| lvalue OP_LE delay_OPT expr
 	"""
-	p[0] = None
+	p[0] = [p[2],p[1]] if len(p) == 3 else \
+			[p[2],p[1],p[4]] if p[3] is None else \
+			[p[2],p[1],p[4],p[3]]
 """
 // this production creates the obligatory if-else shift/reduce conflict
 behavioral_stmt:
@@ -3000,11 +3014,18 @@ rvalue:
 	};
 """
 def p_rvalue(p):
-	"""rvalue : hierarchical_id '[' expr ']' '.' rvalue
-	| hierarchical_id range_OPT
+	"""rvalue : hierarchical_id '[' expr ']' DOT rvalue
+	| hierarchical_id
+	| hierarchical_id range
 	| hierarchical_id multirange
 	"""
-	p[0] = None
+	p[0] = p[1] if len(p)==2 else p[1:]
+def pp_rvalue(p):
+	"""rvalue : hierarchical_id
+	| rvalue range
+	| rvalue DOT TOK_ID
+	"""
+	p[0] = p[1] if len(p)==2 else p[1:]
 """
 lvalue:
 	rvalue {
@@ -3018,7 +3039,7 @@ def p_lvalue(p):
 	"""lvalue : rvalue
 	| '{' expr_SEQ '}'
 	"""
-	p[0] = None
+	p[0] = p[1] if len(p)==2 else [p[1]] + p[2]
 """
 lvalue_concat_list:
 	expr {
@@ -3426,18 +3447,22 @@ basic_expr:
 	};
 """
 def p_basic_expr(p):
-	"""basic_expr : rvalue
+	"""basic_expr : lvalue
 	| integral_number
 	| TOK_REALVAL
 	| TOK_STRING
 	| '(' expr ')'
-	| '{' expr_SEQ '}'
 	| '{' expr '{' expr_SEQ '}' '}'
 	| TOK_TO_SIGNED '(' expr ')'
 	| TOK_TO_UNSIGNED '(' expr ')'
 	| hierarchical_id attr_STAR '(' expr_SEQ ')'
 	"""
-	p[0] = None
+	p[0] = p[1] if len(p)==2 else \
+			p[1:] if p[1] == '(' else \
+			[p[1]] + p[2] if p[1] == '{' and len(p)==4 else \
+			['{{', p[2]] + p[4] if p[1] == '{' and len(p)!=4 else \
+			[p[1],p[3]] if len(p)==5 else \
+			['()', p[1],p[4]] + p[2]
 """
 concat_list:
 	expr {
@@ -3495,24 +3520,24 @@ the conditional operator, which shall associate right to left
 
 def p_expr1(p): ### plus les reduction ops
 	"""expr1 : basic_expr
-	| '+' expr1
-	| '-' expr1
+	| '+' attr_STAR expr1
+	| '-' attr_STAR expr1
 	| '!' attr_STAR expr1
 	| '~' attr_STAR expr1
-	| '&' expr1
-	| OP_NAND expr1
-	| '|' expr1
-	| OP_NOR expr1
-	| '^' expr1
-	| OP_XNOR expr1
+	| '&' attr_STAR expr1
+	| OP_NAND attr_STAR expr1
+	| '|' attr_STAR expr1
+	| OP_NOR attr_STAR expr1
+	| '^' attr_STAR expr1
+	| OP_XNOR attr_STAR expr1
 	"""
-	p[0] = None
+	p[0] = p[1] if len(p)==2 else [p[1],p[3]] + p[2]
 
 def p_expr2(p):
 	"""expr2 : expr1
 	| expr2 OP_POW expr1
 	"""
-	p[0] = None
+	p[0] = p[1] if len(p)==2 else [p[2],p[1],p[3]]
 
 def p_expr3(p):
 	"""expr3 : expr2
@@ -3520,14 +3545,14 @@ def p_expr3(p):
 	| expr3 '/' expr2
 	| expr3 '%' expr2
 	"""
-	p[0] = None
+	p[0] = p[1] if len(p)==2 else [p[2],p[1],p[3]]
 
 def p_expr4(p):
 	"""expr4 : expr3
 	| expr4 '+' attr_STAR expr3
-	| expr4 '-' expr3
+	| expr4 '-' attr_STAR expr3
 	"""
-	p[0] = None
+	p[0] = p[1] if len(p)==2 else [p[2],p[1],p[4]] + p[3]
 
 def p_expr5(p):
 	"""expr5 : expr4
@@ -3536,16 +3561,16 @@ def p_expr5(p):
 	| expr5 OP_SSHL expr4
 	| expr5 OP_SSHR expr4
 	"""
-	p[0] = None
+	p[0] = p[1] if len(p)==2 else [p[2],p[1],p[3]]
 
 def p_expr6(p):
 	"""expr6 : expr5
-	| expr6 '<' expr5
+	| expr6 '<' attr_STAR expr5
 	| expr6 '>' attr_STAR expr5
-	| expr6 OP_LE expr5
-	| expr6 OP_GE expr5
+	| expr6 OP_LE attr_STAR expr5
+	| expr6 OP_GE attr_STAR expr5
 	"""
-	p[0] = None
+	p[0] = p[1] if len(p)==2 else [p[2],p[1],p[4]] + p[3]
 
 def p_expr7(p):
 	"""expr7 : expr6
@@ -3554,46 +3579,46 @@ def p_expr7(p):
 	| expr7 OP_EQX expr6
 	| expr7 OP_NEX expr6
 	"""
-	p[0] = None
+	p[0] = p[1] if len(p)==2 else [p[2],p[1],p[3]]
 
 def p_expr8(p):
 	"""expr8 : expr7
 	| expr8 '&' expr7
 	| expr8 OP_NAND expr7
 	"""
-	p[0] = None
+	p[0] = p[1] if len(p)==2 else [p[2],p[1],p[3]]
 
 def p_expr9(p):
 	"""expr9 : expr8
 	| expr9 '^' expr8
 	| expr9 OP_XNOR expr8
 	"""
-	p[0] = None
+	p[0] = p[1] if len(p)==2 else [p[2],p[1],p[3]]
 
 def p_expr10(p):
 	"""expr10 : expr9
 	| expr10 '|' expr9
 	| expr10 OP_NOR expr9
 	"""
-	p[0] = None
+	p[0] = p[1] if len(p)==2 else [p[2],p[1],p[3]]
 
 def p_expr11(p):
 	"""expr11 : expr10
 	| expr11 OP_LAND attr_STAR expr10
 	"""
-	p[0] = None
+	p[0] = p[1] if len(p)==2 else [p[2],p[1],p[4]] + p[3]
 
 def p_expr12(p):
 	"""expr12 : expr11
 	| expr12 OP_LOR attr_STAR expr11
 	"""
-	p[0] = None
+	p[0] = p[1] if len(p)==2 else [p[2],p[1],p[4]] + p[3]
 
 def p_expr13(p):
 	"""expr13 : expr12
 	| expr12 '?' attr_STAR expr13 ':' expr13
 	"""
-	p[0] = None
+	p[0] = p[1] if len(p)==2 else [p[2],p[1],p[4],p[6]] + p[3]
 
 ############# iterators ##############
 	
@@ -3873,7 +3898,7 @@ def p_error(p):
 	print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
 
 parser = yacc.yacc(optimize=0)
-ply2yacc.yacc(optimize=0)
+#ply2yacc.yacc(optimize=0)
 
 def parse_str(s):
 	""
@@ -3900,6 +3925,10 @@ def parse_file(fn, save_json = False):
 	lexer.current_file = fn
 	try:
 		js = parse_str(s)
+		if True:
+			fd = open(fn[:-1]+'js', 'w',encoding=encoding)
+			json.dump(js,fd,indent='\t')
+			fd.close()
 	except ply.lex.LexError:
 		js = None
 		print('!!!!!!!! LexError !!!!!')
@@ -3922,15 +3951,15 @@ if __name__ == '__main__':
 	fn = vlib + r'\yosys-tests-master\frontends'
 	fn = vlib + r'\yosys-tests-master\misc'
 	fn = vlib + r'\yosys-tests-master\regression'
-	fn = vlib + r'\yosys-tests-master\simple'
-	fn = vlib + r'\yosys-tests-master\verific'
-	fn = vlib + r'\yosys-tests-master\yosys'
-	fn = vlib + r'\yosys-tests-master'
-	fn = vlib + r'\yosys-master'
-	fn = vlib + r'\ivtest-master'
-	fn = vlib + r'\verilator_ext_tests-master'
-	fn = vlib + r'\verilator-master'
-	fn = vlib
+	fn = vlib + r'\yosys-tests-master\simple\aigmap'
+	#fn = vlib + r'\yosys-tests-master\verific'
+	#fn = vlib + r'\yosys-tests-master\yosys'
+	#fn = vlib + r'\yosys-tests-master'
+	#fn = vlib + r'\yosys-master'
+	#fn = vlib + r'\ivtest-master'
+	#fn = vlib + r'\verilator_ext_tests-master'
+	#fn = vlib + r'\verilator-master'
+	#fn = vlib
 	for root, dirs, files in os.walk(fn):
 		for file in files:
 			if file.endswith('.v') and not (root.endswith('sim') and file == 'sieve.v'):
