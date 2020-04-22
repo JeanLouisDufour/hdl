@@ -3013,19 +3013,31 @@ rvalue:
 		delete $1;
 	};
 """
-def p_rvalue(p):
+def p0_rvalue(p):
 	"""rvalue : hierarchical_id '[' expr ']' DOT rvalue
-	| hierarchical_id
-	| hierarchical_id range
-	| hierarchical_id multirange
+	| hierarchical_id range_STAR
 	"""
-	p[0] = p[1] if len(p)==2 else p[1:]
-def pp_rvalue(p):
+	if len(p) == 3:
+		p[0] = p[1]
+	else:
+		p[0] = p[1]
+
+def p1_rvalue(p):
 	"""rvalue : hierarchical_id
 	| rvalue range
 	| rvalue DOT TOK_ID
 	"""
 	p[0] = p[1] if len(p)==2 else p[1:]
+	
+def rvalue(p): # 'extension' de hierarchical_id
+	"""rvalue : TOK_ID
+	| rvalue TOK_PACKAGESEP TOK_ID
+	| rvalue DOT TOK_ID
+	| rvalue range
+	"""
+	p[0] = p[1] if len(p)==2 else \
+			[p[2],p[1],p[3]] if len(p)==4 else \
+			['[',p[1],p[2]]
 """
 lvalue:
 	rvalue {
@@ -3458,7 +3470,7 @@ def p_basic_expr(p):
 	| hierarchical_id attr_STAR '(' expr_SEQ ')'
 	"""
 	p[0] = p[1] if len(p)==2 else \
-			p[1:] if p[1] == '(' else \
+			p[1:3] if p[1] == '(' else \
 			[p[1]] + p[2] if p[1] == '{' and len(p)==4 else \
 			['{{', p[2]] + p[4] if p[1] == '{' and len(p)!=4 else \
 			[p[1],p[3]] if len(p)==5 else \
@@ -3494,7 +3506,7 @@ def p_integral_number(p):
 	| TOK_BASED_CONSTVAL
 	| TOK_CONSTVAL TOK_BASED_CONSTVAL
 	"""
-	p[0] = p[1]
+	p[0] = p[1] if len(p)==2 else ['__based__'] + p[1:]
 
 ############# operators ###################
 """
@@ -3952,6 +3964,7 @@ if __name__ == '__main__':
 	fn = vlib + r'\yosys-tests-master\misc'
 	fn = vlib + r'\yosys-tests-master\regression'
 	fn = vlib + r'\yosys-tests-master\simple\aigmap'
+	fn = vlib + r'\yosys-tests-master\simple'
 	#fn = vlib + r'\yosys-tests-master\verific'
 	#fn = vlib + r'\yosys-tests-master\yosys'
 	#fn = vlib + r'\yosys-tests-master'
@@ -3959,7 +3972,7 @@ if __name__ == '__main__':
 	#fn = vlib + r'\ivtest-master'
 	#fn = vlib + r'\verilator_ext_tests-master'
 	#fn = vlib + r'\verilator-master'
-	#fn = vlib
+	fn = vlib
 	for root, dirs, files in os.walk(fn):
 		for file in files:
 			if file.endswith('.v') and not (root.endswith('sim') and file == 'sieve.v'):
